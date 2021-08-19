@@ -103,7 +103,7 @@ def main():
         '--jpeg', help='Use image/jpeg input', action='store_true')
     args = parser.parse_args()
 
-    default_model = '../models/mobilenet/posenet_mobilenet_v1_075_%d_%d_quant_decoder_edgetpu.tflite'
+    default_model = 'models/mobilenet/posenet_mobilenet_v1_075_%d_%d_quant_decoder_edgetpu.tflite'
     if args.res == '480x360':
         src_size = (640, 480)
         appsink_size = (480, 360)
@@ -137,7 +137,7 @@ def main():
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
 
         start_time = time.monotonic()
-        outputs, inference_time = engine.DetectPosesInImage(img)
+        outputs, inference_time = engine.DetectPosesInFrame(img)
         end_time = time.monotonic()
         n += 1
         sum_process_time += 1000 * (end_time - start_time)
