@@ -15,6 +15,7 @@
 import argparse
 import collections
 import time
+import numpy as np
 
 import cv2
 
@@ -86,10 +87,31 @@ def avg_fps_counter(window_size):
         prev = curr
         yield len(window) / sum(window)
 
+def calculate_velocity(pose, threshold=0.2, last_positions={}):
+    if(pose.keypoints):
+
+        for label, keypoint in pose.keypoints.items():
+            if keypoint.score < threshold:
+                continue
+            # initializing points in
+            # numpy arrays
+            point1 = np.array(keypoint.point)
+            point2 = np.array(keypoint.point)
+            
+            # calculating Euclidean distance
+            # using linalg.norm()
+            dist = np.linalg.norm(point1 - point2)
+            
+        # storing the positions in dictionary
+        last_positions[0] = pose
+
+    return last_positions, dist
 
 def main():
     parser = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.add_argument(
+        '--headless', help='run in headless mode with no display attached', action='store_true')
     parser.add_argument(
         '--mirror', help='flip video horizontally', action='store_true')
     parser.add_argument('--model', help='.tflite model path.', required=False)
@@ -135,29 +157,35 @@ def main():
                          dsize=inference_size,
                          interpolation=cv2.INTER_NEAREST)
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-
+        
         start_time = time.monotonic()
         outputs, inference_time = engine.DetectPosesInFrame(img)
         end_time = time.monotonic()
-        n += 1
-        sum_process_time += 1000 * (end_time - start_time)
-        sum_inference_time += inference_time
 
-        avg_inference_time = sum_inference_time / n
-        text_line = 'PoseNet: %.1fms (%.2f fps) TrueFPS: %.2f Nposes %d' % (
-            avg_inference_time, 1000 /
-            avg_inference_time, next(fps_counter), len(outputs)
-        )
-        if args.mirror:
-            frame = cv2.flip(frame, 1)
-        shadow_text(frame, 10, 20, text_line)
+        dist = 0
         for pose in outputs:
-            draw_pose(frame, pose, src_size, appsink_size)
+            dist  += calculate_velocity(pose)
 
-        cv2.imshow('frame', frame)
+        if args.headless:
+            n += 1
+            sum_process_time += 1000 * (end_time - start_time)
+            sum_inference_time += inference_time
 
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
+            avg_inference_time = sum_inference_time / n
+            text_line = 'PoseNet: %.1fms (%.2f fps) TrueFPS: %.2f Nposes %d' % (
+                avg_inference_time, 1000 /
+                avg_inference_time, next(fps_counter), len(outputs)
+            )
+            if args.mirror:
+                frame = cv2.flip(frame, 1)
+            shadow_text(frame, 10, 20, text_line)
+            for pose in outputs:
+                draw_pose(frame, pose, src_size, appsink_size)
+
+            cv2.imshow('frame', frame)
+
+            if cv2.waitKey(1) & 0xFF == ord('q'):
+                break
 
     camera.release()
     cv2.destroyAllWindows()
