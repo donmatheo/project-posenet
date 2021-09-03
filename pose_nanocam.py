@@ -87,38 +87,39 @@ def avg_fps_counter(window_size):
         prev = curr
         yield len(window) / sum(window)
 
-def calculate_velocity(pose, threshold=0.2, last_positions={}):
+def calculate_differences(pose, last_pose, threshold=0.2):
     if(pose.keypoints):
-
+        dist_sum = 0
         for label, keypoint in pose.keypoints.items():
             if keypoint.score < threshold:
                 continue
-            # initializing points in
-            # numpy arrays
-            point1 = np.array(keypoint.point)
-            point2 = np.array(keypoint.point)
             
-            # calculating Euclidean distance
-            # using linalg.norm()
-            dist = np.linalg.norm(point1 - point2)
-            
-        # storing the positions in dictionary
-        last_positions[0] = pose
+            if label == 9 or label == 10:
+                print(label)
 
-    return last_positions, dist
+                last_pose_point = last_pose.keypoints[label]
+                point1 = np.array(keypoint.point)
+                point2 = np.array(last_pose_point.point)
+                
+                # calculating Euclidean distance
+                # using linalg.norm()
+                dist = np.linalg.norm(point1 - point2)
+                dist_sum += dist
+                print(dist_sum)
+    return dist_sum
 
 def main():
     parser = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument(
-        '--headless', help='run in headless mode with no display attached', action='store_true')
+        '--show', help='show pose, needs attached display', action='store_true')
     parser.add_argument(
         '--mirror', help='flip video horizontally', action='store_true')
     parser.add_argument('--model', help='.tflite model path.', required=False)
     parser.add_argument('--res', help='Resolution', default='640x480',
                         choices=['480x360', '640x480', '1280x720'])
     parser.add_argument(
-        '--videosrc', help='Which video source to use', default='/dev/video0')
+        '--videosrc', help='Which video source to use (csi or usb)', default='usb')
     parser.add_argument(
         '--h264', help='Use video/x-h264 input', action='store_true')
     parser.add_argument(
@@ -149,9 +150,19 @@ def main():
     sum_inference_time = 0
     fps_counter = avg_fps_counter(30)
 
-    camera = nano.Camera(flip=0, width=640, height=480, fps=60, enforce_fps=True)
-    print('CSI Camera is now ready')
-    while True:
+    pose_history = {}
+    camera = 0
+
+    if args.videosrc != 'csi':
+        camera = nano.Camera(camera_type=1, device_id=1, width=640, height=480, fps=30, enforce_fps=True)
+    
+    else: 
+        camera = nano.Camera(flip=0, width=640, height=480, fps=60, enforce_fps=True)
+    
+    if camera.isReady():
+        print('Camera is now ready')
+    
+    while camera.isReady():
         frame = camera.read()
         img = cv2.resize(frame,
                          dsize=inference_size,
@@ -161,12 +172,24 @@ def main():
         start_time = time.monotonic()
         outputs, inference_time = engine.DetectPosesInFrame(img)
         end_time = time.monotonic()
-
-        dist = 0
+        
+        pose_number = 0
         for pose in outputs:
-            dist  += calculate_velocity(pose)
+            pose_number += 1
+            
+            if pose_number in pose_history:
+                #print("last_pose = history pose")
+                last_pose = pose_history[pose_number]
+            else:
+                #print("last_pose = first pose")
+                last_pose = pose
+            if pose != last_pose:
+                dist_sum = calculate_differences(pose, last_pose)
+               
 
-        if args.headless:
+            pose_history[pose_number] = pose
+
+        if args.show:
             n += 1
             sum_process_time += 1000 * (end_time - start_time)
             sum_inference_time += inference_time
