@@ -23,6 +23,8 @@ import nanocamera as nano
 
 from pose_engine_nano import PoseEngineNano
 
+from network_tool import UnityNetwork
+
 EDGES = (
     ('nose', 'left eye'),
     ('nose', 'right eye'),
@@ -45,13 +47,11 @@ EDGES = (
     ('right knee', 'right ankle'),
 )
 
-
 def shadow_text(img, x, y, text, font_size=16):
     cv2.putText(img, text, (x+1, y+1),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 0), 1)
     cv2.putText(img, text, (x, y),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-
 
 def draw_pose(img, pose, src_size, appsink_size, color=(0, 255, 255), threshold=0.2):
     scale_x = src_size[0] / appsink_size[0]
@@ -87,25 +87,24 @@ def avg_fps_counter(window_size):
         prev = curr
         yield len(window) / sum(window)
 
-def calculate_differences(pose, last_pose, threshold=0.2):
+
+def calculate_differences(pose, last_pose, threshold=0.3):
     if(pose.keypoints):
         dist_sum = 0
         for label, keypoint in pose.keypoints.items():
             if keypoint.score < threshold:
                 continue
-            
-            if label == 9 or label == 10:
-                print(label)
 
+            # only calculate dist of left wrists and right wrists
+            if label == 9 or label == 10:
                 last_pose_point = last_pose.keypoints[label]
                 point1 = np.array(keypoint.point)
                 point2 = np.array(last_pose_point.point)
-                
+
                 # calculating Euclidean distance
                 # using linalg.norm()
                 dist = np.linalg.norm(point1 - point2)
                 dist_sum += dist
-                print(dist_sum)
     return dist_sum
 
 def main():
@@ -113,8 +112,6 @@ def main():
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument(
         '--show', help='show pose, needs attached display', action='store_true')
-    parser.add_argument(
-        '--mirror', help='flip video horizontally', action='store_true')
     parser.add_argument('--model', help='.tflite model path.', required=False)
     parser.add_argument('--res', help='Resolution', default='640x480',
                         choices=['480x360', '640x480', '1280x720'])
@@ -141,7 +138,8 @@ def main():
         model = args.model or default_model % (721, 1281)
 
     print('Loading model: ', model)
-    engine = PoseEngineNano(model, mirror=args.mirror)
+    engine = PoseEngineNano(model, mirror=False)
+    network = UnityNetwork()
     input_shape = engine.get_input_tensor_shape()
     inference_size = (input_shape[2], input_shape[1])
 
@@ -154,38 +152,45 @@ def main():
     camera = 0
 
     if args.videosrc != 'csi':
-        camera = nano.Camera(camera_type=1, device_id=1, width=640, height=480, fps=30, enforce_fps=True)
-    
-    else: 
+        camera = nano.Camera(camera_type=1, device_id=1,
+                             width=640, height=480, fps=30)
+
+    else:
         camera = nano.Camera(flip=0, width=640, height=480, fps=60, enforce_fps=True)
     
     if camera.isReady():
         print('Camera is now ready')
-    
+
     while camera.isReady():
         frame = camera.read()
         img = cv2.resize(frame,
                          dsize=inference_size,
                          interpolation=cv2.INTER_NEAREST)
         img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        
+
         start_time = time.monotonic()
         outputs, inference_time = engine.DetectPosesInFrame(img)
         end_time = time.monotonic()
-        
+
         pose_number = 0
+        posecount = len(outputs);
+        network.sendPosesData(posecount)
         for pose in outputs:
             pose_number += 1
-            
+            #print(pose.score)
+
             if pose_number in pose_history:
-                #print("last_pose = history pose")
                 last_pose = pose_history[pose_number]
             else:
-                #print("last_pose = first pose")
                 last_pose = pose
             if pose != last_pose:
                 dist_sum = calculate_differences(pose, last_pose)
-               
+                if(dist_sum < 10):
+                    dist_sum = 0
+                #else: 
+                    #print(dist_sum)
+                    
+                network.sendMovementData(dist_sum)
 
             pose_history[pose_number] = pose
 
@@ -199,14 +204,11 @@ def main():
                 avg_inference_time, 1000 /
                 avg_inference_time, next(fps_counter), len(outputs)
             )
-            if args.mirror:
-                frame = cv2.flip(frame, 1)
             shadow_text(frame, 10, 20, text_line)
             for pose in outputs:
                 draw_pose(frame, pose, src_size, appsink_size)
 
             cv2.imshow('frame', frame)
-
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 break
 
