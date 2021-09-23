@@ -20,6 +20,7 @@ import numpy as np
 import cv2
 
 import nanocamera as nano
+import os
 
 from pose_engine_nano import PoseEngineNano
 
@@ -140,6 +141,8 @@ def main():
     print('Loading model: ', model)
     engine = PoseEngineNano(model, mirror=False)
     network = UnityNetwork()
+    UDP_IP = os.environ['GAME_HOST']
+    print('GAME_HOST (IP): ', UDP_IP)
     input_shape = engine.get_input_tensor_shape()
     inference_size = (input_shape[2], input_shape[1])
 
@@ -173,8 +176,8 @@ def main():
         end_time = time.monotonic()
 
         pose_number = 0
-        posecount = len(outputs);
-        network.sendPosesData(posecount)
+        pose_count = len(outputs);
+        dist_sum = 0;
         for pose in outputs:
             pose_number += 1
             #print(pose.score)
@@ -184,15 +187,12 @@ def main():
             else:
                 last_pose = pose
             if pose != last_pose:
-                dist_sum = calculate_differences(pose, last_pose)
+                dist_sum += calculate_differences(pose, last_pose)
                 if(dist_sum < 10):
                     dist_sum = 0
-                #else: 
-                    #print(dist_sum)
-                    
-                network.sendMovementData(dist_sum)
-
             pose_history[pose_number] = pose
+
+        network.sendMovementData(dist_sum, pose_count, UDP_IP)
 
         if args.show:
             n += 1
