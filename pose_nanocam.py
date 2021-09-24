@@ -155,7 +155,7 @@ def main():
     camera = 0
 
     if args.videosrc != 'csi':
-        camera = nano.Camera(camera_type=1, device_id=1,
+        camera = nano.Camera(camera_type=1, device_id=0,
                              width=640, height=480, fps=30)
 
     else:
